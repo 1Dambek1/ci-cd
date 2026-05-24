@@ -87,4 +87,4 @@ jobs:
               -v project4_data:/app/data \
               ${{ env.IMAGE_NAME }}:latest
             docker image prune -f
-что происходи здесь?
+
