@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+          APP_ENV: test
+          APP_SECRET_KEY: ci-test-secret
+          DATABASE_URL: sqlite:///./ci.db
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run ruff
+        run: uv run ruff check .
+
+      - name: Run tests
+
+        run: uv run pytest --cov=app --cov-report=term-missing

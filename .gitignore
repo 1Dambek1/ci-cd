@@ -1,0 +1,11 @@
+.env
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+data/
+htmlcov/
+coverage.xml
+ci.db
