@@ -1,0 +1,90 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/project4-backend
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check deploy secrets
+        id: deploy_check
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.VPS_HOST }}" ] || [ -z "${{ secrets.VPS_USER }}" ] || [ -z "${{ secrets.VPS_SSH_KEY }}" ] || [ -z "${{ secrets.GHCR_USERNAME }}" ] || [ -z "${{ secrets.GHCR_TOKEN }}" ] || [ -z "${{ secrets.APP_SECRET_KEY }}" ] || [ -z "${{ secrets.DATABASE_URL }}" ]; then
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping deploy because one or more secrets are missing."
+          else
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to VPS over SSH
+        if: steps.deploy_check.outputs.should_deploy == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" -p "${{ secrets.GHCR_TOKEN }}"
+            docker pull ${{ env.IMAGE_NAME }}:latest
+            docker rm -f project4-backend || true
+            docker volume create project4_data
+            docker run -d \
+              --name project4-backend \
+              --restart unless-stopped \
+              -p 8000:8000 \
+              -e APP_NAME="Project4 API" \
+              -e APP_ENV="production" \
+              -e APP_SECRET_KEY="${{ secrets.APP_SECRET_KEY }}" \
+              -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+              -v project4_data:/app/data \
+              ${{ env.IMAGE_NAME }}:latest
+            docker image prune -f
+
